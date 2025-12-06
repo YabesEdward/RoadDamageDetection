@@ -1,317 +1,320 @@
 """
-🚗 Road Damage Detection - Optimized Audio Alert
-NO LAG! Audio pre-generated atau pake beep
+🚗 Road Damage Detection - Gradio Version
+✅ Support Webcam Real-time
+✅ Deploy ke Hugging Face Spaces GRATIS
 """
 
-import streamlit as st
+import gradio as gr
 import cv2
 from ultralytics import YOLO
 import numpy as np
 from PIL import Image
 import time
-import pygame
-import threading
-import winsound  # Windows beep (instant, no lag!)
-
-# Initialize pygame
-pygame.mixer.init()
-
-# Page config
-st.set_page_config(
-    page_title="Road Damage Detection",
-    page_icon="🛣️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        text-align: center;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
-    }
-    .subtitle {
-        text-align: center;
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .alert-box {
-        background: #ff4444;
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-        font-size: 1.5rem;
-        font-weight: bold;
-        animation: blink 1s infinite;
-    }
-    @keyframes blink {
-        0%, 50%, 100% { opacity: 1; }
-        25%, 75% { opacity: 0.5; }
-    }
-    .stButton>button {
-        width: 100%;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Load model
-@st.cache_resource
-def load_model():
-    return YOLO('best.pt')
+model = YOLO('best.pt')
 
-@st.cache_data
-def detect_cameras():
-    """Detect available cameras"""
-    cameras = []
-    for i in range(5):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            ret, _ = cap.read()
-            if ret:
-                backend = cap.getBackendName()
-                cameras.append((i, f"Camera {i} ({backend})"))
-            cap.release()
-    return cameras if cameras else [(0, "Camera 0 (Default)")]
-
-# Play beep alert (INSTANT, NO LAG!)
-def play_beep_alert():
-    """Play beep in background thread - Windows native, NO LAG"""
-    def _beep():
-        try:
-            # Beep: frequency, duration (milliseconds)
-            # High pitch warning beep
-            winsound.Beep(1000, 200)  # 1000Hz, 200ms
-            time.sleep(0.1)
-            winsound.Beep(1200, 200)  # 1200Hz, 200ms - double beep for emphasis
-        except:
-            pass
-    
-    thread = threading.Thread(target=_beep, daemon=True)
-    thread.start()
-
-model = load_model()
-available_cameras = detect_cameras()
-
-# Class info
+# Class info dengan emoji
 CLASS_INFO = {
-    'Longitudinal_Crack': ('🔹 Retak Memanjang', '#FF6B6B', False),
-    'Transverse_Crack': ('↔️ Retak Melintang', '#4ECDC4', False),
-    'Alligator_Crack': ('🐊 Retak Buaya', '#95E1D3', False),
-    'Pothole': ('🕳️ Lubang', '#FFE66D', True)
+    'Longitudinal_Crack': '🔹 Retak Memanjang',
+    'Transverse_Crack': '↔️ Retak Melintang',
+    'Alligator_Crack': '🐊 Retak Buaya',
+    'Pothole': '🕳️ Lubang'
 }
 
-# Header
-st.markdown('<h1 class="main-header">🛣️ Road Damage Detection System</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">🚗 Real-time Dashcam | 🔊 Instant Audio Alert (NO LAG!)</p>', unsafe_allow_html=True)
-
-# Sidebar
-with st.sidebar:
-    st.markdown("## ⚙️ Configuration")
+# Detection function for image/webcam
+def detect_damage(image, confidence=0.25):
+    """
+    Detect road damage from image or webcam frame
+    """
+    if image is None:
+        return None, "⚠️ No image provided"
     
-    # Camera selection
-    st.markdown("### 📹 Camera Source")
+    # Convert to numpy array
+    img_array = np.array(image)
     
-    camera_mode = st.radio(
-        "Selection Mode",
-        ["Auto-detect", "Manual Index"],
-        horizontal=True
-    )
+    # Run YOLO detection
+    results = model.predict(img_array, conf=confidence, verbose=False, imgsz=640)
     
-    if camera_mode == "Auto-detect":
-        camera_options = {desc: idx for idx, desc in available_cameras}
-        selected_camera_desc = st.selectbox(
-            "Select Camera",
-            options=list(camera_options.keys())
-        )
-        camera_idx = camera_options[selected_camera_desc]
+    # Get annotated image
+    annotated = results[0].plot(labels=True, conf=True)
+    annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+    
+    # Count detections
+    detections = {}
+    pothole_detected = False
+    
+    for box in results[0].boxes:
+        cls_name = model.names[int(box.cls[0])]
+        detections[cls_name] = detections.get(cls_name, 0) + 1
+        if cls_name == 'Pothole':
+            pothole_detected = True
+    
+    # Build result text
+    if not detections:
+        result_text = "✅ **No damage detected!**\n\nRoad condition looks good."
     else:
-        camera_idx = st.number_input(
-            "Camera Index",
-            min_value=0,
-            max_value=10,
-            value=1
-        )
+        result_text = f"### 🎯 Detection Results\n\n"
+        result_text += f"**Total Detections: {sum(detections.values())}**\n\n"
+        
+        if pothole_detected:
+            result_text += "### ⚠️ **POTHOLE ALERT!** ⚠️\n\n"
+        
+        result_text += "**Details:**\n"
+        for cls, count in detections.items():
+            emoji_name = CLASS_INFO.get(cls, cls)
+            result_text += f"- {emoji_name}: **{count}x**\n"
     
-    # Model settings
-    st.markdown("### 🎯 Model Settings")
-    confidence = st.slider(
-        "Confidence Threshold",
-        min_value=0.1,
-        max_value=1.0,
-        value=0.3,
-        step=0.05
-    )
-    
-    # Audio settings
-    st.markdown("### 🔊 Audio Alert")
-    enable_audio = st.checkbox("Enable Audio Alert", value=True)
-    alert_cooldown = st.slider(
-        "Alert Cooldown (seconds)",
-        min_value=1,
-        max_value=10,
-        value=3,
-        help="Jarak minimal antar alert"
-    )
-    
-    st.info("💡 Using instant beep alert - NO LAG!")
-    
-    # Display options
-    st.markdown("### 🎨 Display")
-    show_labels = st.checkbox("Show Labels", value=True)
-    show_conf = st.checkbox("Show Confidence", value=True)
-    show_fps = st.checkbox("Show FPS", value=True)
-    
-    # Control
-    st.markdown("### 🎮 Control")
-    run_detection = st.checkbox("▶️ Start Detection", value=False)
-    
-    st.markdown("---")
-    st.markdown("""
-    **⚡ Optimized:**
-    - Instant beep alert (no lag!)
-    - Smooth 60 FPS video
-    - Background audio processing
-    """)
+    return annotated, result_text
 
-# Main content
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    st.markdown("### 📹 Live Video Feed")
-    video_placeholder = st.empty()
-    alert_placeholder = st.empty()
-
-with col2:
-    st.markdown("### 📊 Statistics")
-    fps_metric = st.empty()
-    detected_metric = st.empty()
+# Detection function for video
+def detect_video(video_path, confidence=0.25, skip_frames=2):
+    """
+    Process video file and detect road damage
+    """
+    if video_path is None:
+        return None, "⚠️ No video provided"
     
-    st.markdown("### 🏷️ Detections")
-    detection_details = st.empty()
-
-# Video streaming
-if run_detection:
-    cap = cv2.VideoCapture(camera_idx)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
-        st.error(f"❌ Cannot open camera {camera_idx}")
-    else:
-        st.success("✅ Camera active!")
+        return None, "❌ Cannot open video file"
+    
+    # Get video properties
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Create output video
+    output_path = "output_detected.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    frame_count = 0
+    total_detections = 0
+    pothole_frames = 0
+    
+    status_text = f"Processing video... {total_frames} frames\n\n"
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
         
-        frame_count = 0
-        start_time = time.time()
-        total_detected = 0
-        last_alert_time = 0
+        frame_count += 1
         
-        while run_detection:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Detection
-            results = model.predict(
-                frame,
-                conf=confidence,
-                verbose=False,
-                device='cpu',
-                imgsz=640
-            )
-            
-            annotated = results[0].plot(labels=show_labels, conf=show_conf)
-            annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+        # Process every N frames
+        if frame_count % skip_frames == 0:
+            results = model.predict(frame, conf=confidence, verbose=False, imgsz=640)
+            annotated = results[0].plot(labels=True, conf=True)
             
             # Count detections
-            detections = {}
-            pothole_detected = False
+            detections = len(results[0].boxes)
+            total_detections += detections
             
+            # Check for potholes
             for box in results[0].boxes:
-                cls_name = model.names[int(box.cls[0])]
-                detections[cls_name] = detections.get(cls_name, 0) + 1
-                if cls_name == 'Pothole':
-                    pothole_detected = True
+                if model.names[int(box.cls[0])] == 'Pothole':
+                    pothole_frames += 1
+                    break
             
-            total_detected += sum(detections.values())
-            
-            # INSTANT BEEP ALERT - NO LAG!
-            current_time = time.time()
-            if enable_audio and pothole_detected:
-                if current_time - last_alert_time > alert_cooldown:
-                    play_beep_alert()  # Background thread, instant!
-                    last_alert_time = current_time
-            
-            # FPS
-            frame_count += 1
-            elapsed = time.time() - start_time
-            fps = frame_count / elapsed if elapsed > 0 else 0
-            
-            if show_fps:
-                cv2.rectangle(annotated, (10, 10), (200, 60), (0, 0, 0), -1)
-                cv2.putText(annotated, f"FPS: {fps:.1f}", (20, 45),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
-            
-            # Visual alert
-            if pothole_detected:
-                alert_placeholder.markdown(
-                    '<div class="alert-box">⚠️ POTHOLE AHEAD! ⚠️</div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                alert_placeholder.empty()
-            
-            # Display
-            video_placeholder.image(annotated, channels="RGB", use_column_width=True)
-            
-            # Metrics
-            with col2:
-                fps_metric.metric("⚡ FPS", f"{fps:.1f}")
-                detected_metric.metric("🎯 Total", total_detected)
-                
-                if detections:
-                    details_html = ""
-                    for cls, count in detections.items():
-                        info = CLASS_INFO.get(cls, (cls, '#999', False))
-                        alert_emoji = " 🔊" if cls == 'Pothole' else ""
-                        details_html += f"""
-                        <div style="
-                            background: {info[1]}22;
-                            border-left: 4px solid {info[1]};
-                            padding: 0.5rem;
-                            margin: 0.5rem 0;
-                            border-radius: 5px;
-                        ">
-                            <strong>{info[0]}{alert_emoji}</strong><br>
-                            {count}x
-                        </div>
-                        """
-                    detection_details.markdown(details_html, unsafe_allow_html=True)
-                else:
-                    detection_details.info("ℹ️ No damage")
-            
-            time.sleep(0.01)
-        
-        cap.release()
-        st.warning("⏹️ Stopped")
-else:
-    st.info("👆 Enable 'Start Detection' to begin")
+            out.write(annotated)
+        else:
+            out.write(frame)
+    
+    cap.release()
+    out.release()
+    
+    # Build result text
+    result_text = f"""
+### ✅ Video Processing Complete!
 
-st.markdown("---")
-st.markdown(
-    "<p style='text-align: center; color: #666;'>"
-    "🎓 <b>Road Damage Detection</b> | YOLOv8 | Optimized for Real-time Performance"
-    "</p>",
-    unsafe_allow_html=True
-)
+**Statistics:**
+- Total Frames: {total_frames}
+- Frames Processed: {frame_count // skip_frames}
+- Total Detections: {total_detections}
+- Frames with Potholes: {pothole_frames}
+
+**Output:** Saved as `output_detected.mp4`
+"""
+    
+    return output_path, result_text
+
+# Custom CSS
+custom_css = """
+#warning {
+    background: linear-gradient(90deg, #ff4444, #cc0000);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+    margin: 10px 0;
+}
+.gradio-container {
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+"""
+
+# Build Gradio Interface
+with gr.Blocks(css=custom_css, theme=gr.themes.Soft()) as demo:
+    
+    gr.Markdown("""
+    # 🛣️ Road Damage Detection System
+    ### 📹 Real-time Detection using YOLOv8 | Support Webcam, Upload, & Video
+    """)
+    
+    with gr.Tabs():
+        
+        # Tab 1: Webcam Real-time
+        with gr.Tab("📹 Real-time Webcam"):
+            gr.Markdown("""
+            ### 🎥 Use your webcam for real-time road damage detection
+            **Instructions:**
+            1. Click "Start Recording" to activate webcam
+            2. Point camera at road surface
+            3. Detection will run automatically
+            4. Adjust confidence threshold as needed
+            """)
+            
+            with gr.Row():
+                with gr.Column(scale=2):
+                    webcam_input = gr.Image(
+                        sources=["webcam"],
+                        type="pil",
+                        label="📹 Webcam Feed",
+                        streaming=True
+                    )
+                    
+                with gr.Column(scale=1):
+                    webcam_confidence = gr.Slider(
+                        minimum=0.1,
+                        maximum=1.0,
+                        value=0.25,
+                        step=0.05,
+                        label="🎯 Confidence Threshold"
+                    )
+                    webcam_output_text = gr.Markdown(label="📊 Detection Results")
+            
+            with gr.Row():
+                webcam_output_img = gr.Image(label="🎯 Detected Image", type="numpy")
+            
+            # Auto-detect on webcam frame change
+            webcam_input.stream(
+                fn=detect_damage,
+                inputs=[webcam_input, webcam_confidence],
+                outputs=[webcam_output_img, webcam_output_text],
+                stream_every=0.5  # Process every 0.5 seconds
+            )
+        
+        # Tab 2: Upload Image
+        with gr.Tab("🖼️ Upload Image"):
+            gr.Markdown("""
+            ### 📤 Upload a photo of road damage
+            **Supported formats:** JPG, PNG, JPEG
+            """)
+            
+            with gr.Row():
+                with gr.Column():
+                    image_input = gr.Image(
+                        type="pil",
+                        label="📤 Upload Road Image"
+                    )
+                    image_confidence = gr.Slider(
+                        minimum=0.1,
+                        maximum=1.0,
+                        value=0.25,
+                        step=0.05,
+                        label="🎯 Confidence Threshold"
+                    )
+                    image_button = gr.Button("🔍 Detect Damage", variant="primary")
+                
+                with gr.Column():
+                    image_output = gr.Image(label="🎯 Detection Result", type="numpy")
+                    image_output_text = gr.Markdown(label="📊 Analysis")
+            
+            image_button.click(
+                fn=detect_damage,
+                inputs=[image_input, image_confidence],
+                outputs=[image_output, image_output_text]
+            )
+            
+            # Example images
+            gr.Examples(
+                examples=[
+                    ["examples/pothole.jpg", 0.25],
+                    ["examples/crack.jpg", 0.3],
+                ],
+                inputs=[image_input, image_confidence],
+                outputs=[image_output, image_output_text],
+                fn=detect_damage,
+                cache_examples=False
+            )
+        
+        # Tab 3: Upload Video
+        with gr.Tab("🎬 Upload Video"):
+            gr.Markdown("""
+            ### 📹 Process dashcam or recorded video
+            **Supported formats:** MP4, AVI, MOV
+            **Note:** Processing may take time depending on video length
+            """)
+            
+            with gr.Row():
+                with gr.Column():
+                    video_input = gr.Video(label="📤 Upload Video")
+                    video_confidence = gr.Slider(
+                        minimum=0.1,
+                        maximum=1.0,
+                        value=0.25,
+                        step=0.05,
+                        label="🎯 Confidence Threshold"
+                    )
+                    video_skip = gr.Slider(
+                        minimum=1,
+                        maximum=10,
+                        value=2,
+                        step=1,
+                        label="⚡ Skip Frames (higher = faster)"
+                    )
+                    video_button = gr.Button("🎬 Process Video", variant="primary")
+                
+                with gr.Column():
+                    video_output = gr.Video(label="🎯 Processed Video")
+                    video_output_text = gr.Markdown(label="📊 Statistics")
+            
+            video_button.click(
+                fn=detect_video,
+                inputs=[video_input, video_confidence, video_skip],
+                outputs=[video_output, video_output_text]
+            )
+    
+    # Footer
+    gr.Markdown("""
+    ---
+    ### 💡 Tips for Best Results:
+    - **Webcam**: Ensure good lighting and stable camera position
+    - **Images**: Use clear, high-resolution photos
+    - **Videos**: Dashcam footage works best at 720p or 1080p
+    - **Confidence**: Lower threshold (0.15-0.25) for more detections, higher (0.4-0.6) for more accurate
+    
+    ### 📊 Detection Classes:
+    - 🔹 **Longitudinal Crack** - Retak memanjang
+    - ↔️ **Transverse Crack** - Retak melintang  
+    - 🐊 **Alligator Crack** - Retak buaya
+    - 🕳️ **Pothole** - Lubang jalan
+    
+    ---
+    **🎓 Developed for Deep Learning & Computer Vision Course**
+    
+    *Powered by YOLOv8 + Gradio*
+    """)
+
+# Launch app
+if __name__ == "__main__":
+    demo.launch(
+        share=True,  # Create public link
+        server_name="0.0.0.0",
+        server_port=7860
+    )
