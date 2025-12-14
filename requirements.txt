@@ -1,7 +1,7 @@
-gradio==4.36.1
-ultralytics==8.1.20
-opencv-python-headless==4.8.1.78
-torch==2.0.1
-torchvision==0.15.2
-pillow==10.1.0
-numpy==1.24.3
+gradio==4.44.1
+ultralytics==8.3.41
+opencv-python-headless==4.10.0.84
+torch==2.5.1+cpu
+torchvision==0.20.1+cpu
+pillow==11.0.0
+numpy==1.26.4
