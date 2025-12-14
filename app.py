@@ -14,11 +14,11 @@ CLASS_INFO = {
 
 def detect(image, conf):
     if image is None:
-        return None, "No image"
+        return None, "❌ Tidak ada gambar yang diupload"
     
     results = model.predict(image, conf=conf, verbose=False, imgsz=640)
     annotated = results[0].plot()
-    annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+    annotated = cv2.CVtColor(annotated, cv2.COLOR_BGR2RGB)
     
     detections = {}
     for box in results[0].boxes:
@@ -26,9 +26,9 @@ def detect(image, conf):
         detections[cls] = detections.get(cls, 0) + 1
     
     if not detections:
-        text = "✅ No damage detected"
+        text = "✅ Tidak ada kerusakan jalan terdeteksi"
     else:
-        text = f"🎯 Total: {sum(detections.values())}\n\n"
+        text = f"🎯 Total Deteksi: {sum(detections.values())}\n\n"
         for cls, count in detections.items():
             text += f"{CLASS_INFO.get(cls, cls)}: {count}x\n"
     
@@ -37,15 +37,19 @@ def detect(image, conf):
 demo = gr.Interface(
     fn=detect,
     inputs=[
-        gr.Image(label="Upload or Use Webcam", sources=["upload", "webcam"]),
-        gr.Slider(0.1, 1.0, 0.25, 0.05, label="Confidence")
+        gr.Image(label="Upload Gambar Jalan", type="numpy", sources=["upload"]),
+        gr.Slider(0.1, 1.0, 0.25, 0.05, label="Confidence Threshold")
     ],
     outputs=[
-        gr.Image(label="Detection Result"),
-        gr.Textbox(label="Results", lines=5)
+        gr.Image(label="Hasil Deteksi"),
+        gr.Textbox(label="Ringkasan Deteksi", lines=6)
     ],
-    title="🛣️ Road Damage Detection",
-    description="Upload image or use webcam to detect road damage"
+    title="🛣️ Deteksi Kerusakan Jalan",
+    description="📸 Upload gambar jalan untuk mendeteksi kerusakan seperti retak dan lubang",
+    theme="soft",
+    examples=[
+        # Anda bisa menambahkan contoh gambar di sini jika ada
+    ]
 )
 
 import os
